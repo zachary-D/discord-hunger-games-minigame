@@ -1,6 +1,8 @@
 import * as Discord from "discord.js";
 import {setInterval} from "timers";
 
+import * as ReactionButtons from "../Discord-Bot-Core/src/reactionButtons";
+
 import {client} from "../Discord-Bot-Core/bot";
 
 const DEFAULT_ROLE_NAME = "minigame peeps";
@@ -42,7 +44,7 @@ export class Game {
 	//True if a movement phase has never occurred yet
 	private isFirstMovementPhase = true;
 	private movementSelectorMessage: Discord.Message;
-	private movementSelectorReactionCollector: Discord.ReactionCollector;
+	private movementSelectorButtons: ReactionButtons.ReactionButtonsManager;
 
 	//Constructors & creators
 
@@ -98,7 +100,7 @@ export class Game {
 		//The only two states we can be in is .notStarted and .paused, and we want to move to .inProgress for either
 		this.state = GameState.inProgress;
 		this.doGameTick();
-		this.nextPhaseTimer = setInterval(this.doGameTick, this.phasePeriod * 1000);
+		this.nextPhaseTimer = setInterval(() => this.doGameTick, this.phasePeriod * 1000);
 	}
 
 	// Internal methods
@@ -122,12 +124,19 @@ export class Game {
 			this.isFirstMovementPhase = false;
 		}
 
-		if(this.movementSelectorReactionCollector && !this.movementSelectorReactionCollector.ended) this.movementSelectorReactionCollector.stop();
+		// Clean up previous message & buttons if they exist
+		if(this.movementSelectorButtons && !this.movementSelectorButtons.ended) this.movementSelectorButtons.stop();
 		if(this.movementSelectorMessage && !this.movementSelectorMessage.deleted) await this.movementSelectorMessage.delete();
 
-		await this.channel.send(message);
+		this.movementSelectorMessage = await this.channel.send(message);
 
-		//TODO: Create reaction buttons
+		const emojiIdentifiersToUse = ReactionButtons.DEFAULT_EMOJI_BUTTON_IDENTIFIERS.slice(0, this.numSectors);
+
+		this.movementSelectorButtons = new ReactionButtons.ReactionButtonsManager(this.movementSelectorMessage, emojiIdentifiersToUse);
+
+		this.movementSelectorButtons.on("buttonPress", (user, button) => {
+			this.channel.send(`${user} pressed button ${button}`);
+		});
 	}
 
 	private async runPlayerInteractions() {
