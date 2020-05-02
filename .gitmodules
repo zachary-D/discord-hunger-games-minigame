@@ -1,0 +1,3 @@
+[submodule "Discord-Bot-Core"]
+	path = Discord-Bot-Core
+	url = git@git.zacksserver.com:zachary-D/Discord-Bot-Core.git
