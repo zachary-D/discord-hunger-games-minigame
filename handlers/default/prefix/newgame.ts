@@ -3,7 +3,7 @@ import * as Discord from "discord.js";
 import {Game} from "../../../modules/hungergames";
 
 module.exports = {
-	name: 'hgnewgame',
+	name: 'newgame',
 	description: '',
 	aliases: [],
 	//Comment out permissions/channel/server requirements if you want it to run everywhere/by everyone/etc
@@ -18,6 +18,7 @@ module.exports = {
 	rateLimitUser: 1,
 	rateLimitGlobal: -1,
 	async execute(msg : Discord.Message, args : Array<string>) {
-		Game.createNewGame(msg.guild);
+		const game = await Game.createNewGame(msg.guild);
+		game.resumeGame();
 	}
 }
