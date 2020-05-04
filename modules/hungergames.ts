@@ -42,15 +42,50 @@ function calculateDamageTaken(attackingPlayer: Player, defendingPlayer: Player):
 	return Math.round(damage);
 }
 
-function handleCombatBetweenPlayers(player1: Player, player2: Player) {
-	player1.wasInCombat = true;
-	player2.wasInCombat = true;
+function handleCombatBetweenPlayers(attacker: Player, target: Player): string {
+	attacker.wasInCombat = true;
+	target.wasInCombat = true;
 
-	const player1DamageTaken = calculateDamageTaken(player2, player1);
-	const player2DamageTaken = calculateDamageTaken(player1, player2);
+	const attackerDamageTaken = calculateDamageTaken(target, attacker);
+	const targetDamageTaken = calculateDamageTaken(attacker, target);
 
-	player1.health -= player1DamageTaken;
-	player2.health -= player2DamageTaken;
+	attacker.health -= attackerDamageTaken;
+	target.health -= targetDamageTaken;
+
+	let message = "";
+
+	if(target.foundPlayer && target.nextAction == PlayerAction.attack) {
+		message += `${attacker.member} and ${target.member} fought!\n`;
+	} else message += `${attacker.member} attacked ${target.member}!\n`;
+
+	message += `${attacker.member} dealt ${targetDamageTaken} points of damage!\n`;
+	message += `${target.member} dealt ${attackerDamageTaken} points of damage!\n`;
+
+	const attackerDead = attacker.health < 0;
+	const targetDead = target.health < 0;
+
+	if(attackerDead && targetDead) {
+		message += `They were both killed in the fight!`;
+	}
+	else if(attackerDead || targetDead) {
+		let dead: Player;
+		let survivor: Player;
+		if(attackerDead) dead = attacker;
+		else survivor = attacker;
+		if(targetDead) dead = target;
+		else survivor = target;
+
+		if(dead == target) {
+			if(target.nextAction == PlayerAction.run) message += `${dead.member} tried to run, but were killed!`;
+			else if(target.nextAction == PlayerAction.search) message += `${dead.member} never saw them coming.`;
+			else message += `${survivor.member} killed ${dead.member}!`;
+		} else if(dead == attacker) {
+			if(target.nextAction != PlayerAction.attack) message += `${dead.member} killed them in self defense!`;
+			else message += `${survivor.member} killed ${dead.member}!`;
+		}
+	}
+
+	return message + "\n";
 }
 
 // Games, mapped by guild ID -> game
@@ -397,6 +432,8 @@ export class Game {
 	}
 
 	private async runPlayerInteractions() {
+		const messagesOut: string[] = [];
+
 		this.players.forEach(p => p.cleanupActionSelectionPrompt());
 
 		const activePlayers = this.players.filter(p => p.health > 0);
@@ -406,14 +443,19 @@ export class Game {
 		for(const [_k, player] of attackingPlayers) {
 			if(player.wasInCombat) continue;
 
-			handleCombatBetweenPlayers(player, player.foundPlayer);
+			messagesOut.push(handleCombatBetweenPlayers(player, player.foundPlayer));
 		}
 
 		const searchingPlayers = activePlayers.filter(p => p.nextAction == PlayerAction.search && !p.wasInCombat);
 
 		for(const [_k, player] of searchingPlayers) {
-			if(ifRand(MEDKIT_FIND_PERCENT)) player.applyMedkit();
+			if(ifRand(MEDKIT_FIND_PERCENT)) {
+				player.applyMedkit();
+				messagesOut.push(`${player.member} found a medkit!\n`);
+			}
 		}
+
+		if(messagesOut.length > 0) this.channel.send(messagesOut.join(`\n`), {split: true});
 	}
 
 	private doGameTick() {
