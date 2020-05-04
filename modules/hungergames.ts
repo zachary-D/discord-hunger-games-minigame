@@ -21,13 +21,13 @@ function ifRand(percent: number) {
 	return Math.random() < percent;
 }
 
-function selectAndRemoveRandomElement<T>(collection: Discord.Collection<any, T>): T {
+function selectAndRemoveRandomElement<TKey, TValue>(collection: Discord.Collection<TKey, TValue>): [TKey, TValue] {
 	let index = Math.floor(Math.random() * collection.size);
 	if(index == collection.size) index--;
 	const key = Array.from(collection.keys())[index];
 	const value = collection.get(key);
 	collection.delete(key);
-	return value;
+	return [key, value];
 }
 
 function calculateDamageTaken(attackingPlayer: Player, defendingPlayer: Player): number {
@@ -360,19 +360,21 @@ export class Game {
 			let playerPool = this.players.filter( pl => pl.currentSector == sector && pl.health > 0);
 			const playersWhoFoundPlayers = playerPool.filter(pl => ifRand(PLAYER_NOTICE_PLAYER_PERCENT));
 
-			// Reduce the playerPool to only players who have not found other players
-			playerPool = playerPool.filter( pl => playersWhoFoundPlayers.find( _pl => pl == _pl) == null);
-
 			// For the players who found players, determine who they found
-			for(const [_k, playerWhoFoundAnother] of playersWhoFoundPlayers) {
+			for(const [key, playerWhoFoundAnother] of playersWhoFoundPlayers) {
+				playerPool.delete(key);	//Remove ourselves from the pool of unpaired players
+
 				if(playerPool.size == 0) break;
 
-				playerWhoFoundAnother.foundPlayer = selectAndRemoveRandomElement(playerPool);
+				const [selectedKey, selectedValue] = selectAndRemoveRandomElement(playerPool);
+				playerWhoFoundAnother.foundPlayer = selectedValue;
 
-				if(ifRand(PLAYER_NOTICE_WHO_NOTICED_THEM_PERCENT)) {
+				if(ifRand(PLAYER_NOTICE_WHO_NOTICED_THEM_PERCENT) || playersWhoFoundPlayers.has(selectedKey)) {
 					const other = playerWhoFoundAnother.foundPlayer;
 					other.foundPlayer = playerWhoFoundAnother;
 				}
+
+				playersWhoFoundPlayers.delete(selectedKey);
 			}
 		}
 
