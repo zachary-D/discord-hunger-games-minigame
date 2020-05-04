@@ -142,7 +142,6 @@ export class Player {
 		const player: any = {};
 		player.parentGame = parentGame;
 		player.member = member;
-		player.nextSector = Math.round(Math.random() * (player.parentGame.numSectors - 1) + 1);
 		return new Player(player);
 	}
 
@@ -217,10 +216,6 @@ export class Game {
 				}
 				game.channel = await game.guild.createChannel(DEFAULT_CHANNEL_NAME, channelData) as Discord.TextChannel;
 			}
-		}
-
-		for(const [id, member] of game.memberRole.members) {
-			game.players.set(id, Player.createNewPlayer(game, member));
 		}
 
 		games.set(game.guild.id, game);
@@ -330,17 +325,31 @@ export class Game {
 		this.movementSelectorButtons.on("buttonPress", (user, buttonID) => {this.handleMovementSelectorButtonPress(user,buttonID)});
 	}
 
-	private handleMovementSelectorButtonPress(user: Discord.User, buttonID: number) {
+	private async addUserToGame(member: Discord.GuildMember): Promise<Player> {
+		const player = Player.createNewPlayer(this, member)
+		this.players.set(member.id, player);
+
+		try {
+			await member.user.send("Welcome to the games!");
+		}
+		catch(e) {
+			this.cantSendDMsToPlayer(player);
+			return;
+		}
+
+		member.addRole(this.memberRole);
+		return player;
+	}
+
+	private async handleMovementSelectorButtonPress(user: Discord.User, buttonID: number) {
 		let player = this.players.get(user.id);
 
 			if(!player) {
 				// If the user that clicked is not a player,
 				if(this.isFirstMovementPhase) {
 					//If the first movement phase hasn't been executed yet just let them join 
-					const member = this.guild.members.get(user.id);
-					member.addRole(this.memberRole);
-					player = Player.createNewPlayer(this, member)
-					this.players.set(user.id, player);
+					player = await this.addUserToGame(this.guild.members.get(user.id));
+					if(!player) return;
 				}
 				else return;
 			}
