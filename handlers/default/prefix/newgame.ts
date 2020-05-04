@@ -7,7 +7,7 @@ module.exports = {
 	description: '',
 	aliases: [],
 	//Comment out permissions/channel/server requirements if you want it to run everywhere/by everyone/etc
-	permissions: ["host", "admin"],
+	permissions: ["host", "admins"],
 	// inChannelID: [],
 	// inChannelName: [],
 	// inServerID: [],
