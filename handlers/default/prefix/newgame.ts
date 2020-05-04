@@ -20,5 +20,6 @@ module.exports = {
 	async execute(msg : Discord.Message, args : Array<string>) {
 		const game = await Game.createNewGame(msg.guild);
 		game.resumeGame();
+		msg.delete();
 	}
 }

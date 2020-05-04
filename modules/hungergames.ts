@@ -2,12 +2,56 @@ import * as Discord from "discord.js";
 import {setInterval} from "timers";
 
 import * as ReactionButtons from "../Discord-Bot-Core/src/reactionButtons";
-import * as ReactionRoles from "../Discord-Bot-Core/src/reactionRoles";
-
-import {client} from "../Discord-Bot-Core/bot";
 
 const DEFAULT_ROLE_NAME = "minigame peeps";
 const DEFAULT_CHANNEL_NAME = "minigame";
+
+const PLAYER_NOTICE_PLAYER_PERCENT = .40;
+const PLAYER_NOTICE_WHO_NOTICED_THEM_PERCENT = .75;
+const MEDKIT_FIND_PERCENT = .05;
+const MEDKIT_HEALTH_BONUS = 7;
+
+const PLAYER_DAMAGE_DEALT_PERCENT_WHILE_RUNNING = .40;
+const PLAYER_DAMAGE_TAKEN_PERCENT_WHILE_RUNNING = .60;
+const PLAYER_DAMAGE_DEALT_PERCENT_WHILE_SEARCHING = .60;
+const PLAYER_DAMAGE_TAKEN_PERCENT_WHILE_SEARCHING = 1.20;
+
+// Returns true `percent` of the time (calls Math.Random(), returns true if rand() is less than the percent given)
+function ifRand(percent: number) {
+	return Math.random() < percent;
+}
+
+function selectAndRemoveRandomElement<T>(collection: Discord.Collection<any, T>): T {
+	let index = Math.floor(Math.random() * collection.size);
+	if(index == collection.size) index--;
+	const key = Array.from(collection.keys())[index];
+	const value = collection.get(key);
+	collection.delete(key);
+	return value;
+}
+
+function calculateDamageTaken(attackingPlayer: Player, defendingPlayer: Player): number {
+	let damage = 2 * Math.tan(2.4 * (Math.random() - 0.5)) + 5;
+
+	if(defendingPlayer.nextAction == PlayerAction.run) damage *= PLAYER_DAMAGE_TAKEN_PERCENT_WHILE_RUNNING;
+	else if(defendingPlayer.nextAction == PlayerAction.search) damage *= PLAYER_DAMAGE_TAKEN_PERCENT_WHILE_SEARCHING;
+
+	if(attackingPlayer.nextAction == PlayerAction.run) damage *= PLAYER_DAMAGE_DEALT_PERCENT_WHILE_RUNNING;
+	if(attackingPlayer.nextAction == PlayerAction.search) damage *= PLAYER_DAMAGE_DEALT_PERCENT_WHILE_SEARCHING;
+
+	return Math.round(damage);
+}
+
+function handleCombatBetweenPlayers(player1: Player, player2: Player) {
+	player1.wasInCombat = true;
+	player2.wasInCombat = true;
+
+	const player1DamageTaken = calculateDamageTaken(player2, player1);
+	const player2DamageTaken = calculateDamageTaken(player1, player2);
+
+	player1.health -= player1DamageTaken;
+	player2.health -= player2DamageTaken;
+}
 
 // Games, mapped by guild ID -> game
 const games = new Discord.Collection<Discord.Snowflake, Game>();
@@ -16,7 +60,8 @@ const games = new Discord.Collection<Discord.Snowflake, Game>();
 
 enum PlayerAction {
 	run = 1,
-	attack = 2
+	attack = 2,
+	search = 3
 }
 
 enum GamePhase {
@@ -31,13 +76,28 @@ enum GameState {
 	complete = 4
 }
 
+
+const PlayerActionEmoji = [
+	"🏃",
+	"🔎",
+	"🤜"
+]
+
 export class Player {
 	readonly parentGame: Game;
 	readonly member: Discord.GuildMember;
 	health = 15;
 	currentSector = 1;
 	nextSector = 1;
+
 	nextAction = PlayerAction.run;
+	foundPlayer: Player;	//Set if this player found another player in an interaction step
+	foundMedkit = false;	//Set if the player found a medkit in the last interaction step
+	wasInCombat = false;
+
+	actionSelectionPromptMessage: Discord.Message;
+	actionSelectionButtons: ReactionButtons.ReactionButtonsManager;
+
 
 	private constructor(data?: Partial<Player>) {
 		Object.assign(this, data);
@@ -47,12 +107,27 @@ export class Player {
 		const player: any = {};
 		player.parentGame = parentGame;
 		player.member = member;
+		player.nextSector = Math.round(Math.random() * (player.parentGame.numSectors - 1) + 1);
 		return new Player(player);
 	}
-}
 
-//TODO: Add checks to make sure people can't join games while they're in progress
-//TODO: Perhaps let people join up until the first movement phase is executed?
+	clearInteractionStepFlags() {
+		this.nextAction = PlayerAction.run;
+		this.foundPlayer = null;
+		this.foundMedkit = false;
+		this.wasInCombat = false;
+	}
+
+	cleanupActionSelectionPrompt() {
+		this.actionSelectionButtons.stop();
+		this.actionSelectionPromptMessage.delete();
+	}
+
+	applyMedkit() {
+		this.foundMedkit = true;
+		this.health += MEDKIT_HEALTH_BONUS;
+	}
+}
 
 export class Game {
 	private memberRole: Discord.Role;
@@ -61,15 +136,13 @@ export class Game {
 	private guild: Discord.Guild;
 	private channel: Discord.TextChannel;
 
-	private phase = GamePhase.movement; 
+	private phase = GamePhase.interaction; 
 	private state = GameState.notStarted;
 	private nextPhaseTimer: NodeJS.Timer;
 	private phasePeriod = 3 * 60;	//The length of a game-period, in seconds.  Defaults to 3 minutes
 
 	private numSectors = 6;		//The number of sectors in the map
 
-	//When true, the next phase is forced to be .movement
-	private forceMovementPhase = true;
 	//True if a movement phase has never occurred yet
 	private isFirstMovementPhase = true;
 	private movementSelectorMessage: Discord.Message;
@@ -126,12 +199,12 @@ export class Game {
 		if(this.state == GameState.complete) throw new Error("Cannot resume finished game");
 		if(this.state == GameState.inProgress) throw new Error("Cannot resume game already in progress");
 
-		if(this.state == GameState.notStarted) this.forceMovementPhase = true;
+		// if(this.state == GameState.notStarted) this.forceMovementPhase = true;
 
 		//The only two states we can be in is .notStarted and .paused, and we want to move to .inProgress for either
 		this.state = GameState.inProgress;
 		this.doGameTick();
-		this.nextPhaseTimer = setInterval(() => this.doGameTick, this.phasePeriod * 1000);
+		this.nextPhaseTimer = setInterval(() => this.doGameTick(), this.phasePeriod * 1000);
 	}
 
 	pauseGame() {
@@ -181,7 +254,6 @@ export class Game {
 		str += `numSectors: ${this.numSectors}\n`;
 		str += `phasePeriod: ${this.phasePeriod}\n`;
 		str += `firstMovementPhase: ${this.isFirstMovementPhase}\n`;
-		str += `forceMovementPhase: ${this.forceMovementPhase}\n`;
 		for(const [playerID, player] of this.players) {
 			str += `>> player: ${player.member.displayName}\n`;
 			str += `>> health: ${player.health}\n`;
@@ -214,10 +286,6 @@ export class Game {
 			message = `Welcome to the Games.  ${message}`;
 		}
 
-		// Clean up previous message & buttons if they exist
-		if(this.movementSelectorButtons && !this.movementSelectorButtons.ended) this.movementSelectorButtons.stop();
-		if(this.movementSelectorMessage && !this.movementSelectorMessage.deleted) await this.movementSelectorMessage.delete();
-
 		this.movementSelectorMessage = await this.channel.send(message);
 
 		const emojiIdentifiersToUse = ReactionButtons.DEFAULT_EMOJI_BUTTON_IDENTIFIERS.slice(0, this.numSectors);
@@ -243,27 +311,138 @@ export class Game {
 			}
 
 			player.nextSector = buttonID + 1;	//buttons start at 0, sectors start at 1
+	}
 
-			console.log(this.dumpGameState());
+	private async sendPlayerInteractionsPrompt() {
+
+		// Clean up movement selector message & buttons if they exist
+		if(this.movementSelectorButtons && !this.movementSelectorButtons.ended) this.movementSelectorButtons.stop();
+		if(this.movementSelectorMessage && !this.movementSelectorMessage.deleted) this.movementSelectorMessage.delete();
+
+		this.players.forEach(pl => pl.clearInteractionStepFlags());
+
+		for(let sector = 1; sector <= this.numSectors; sector++) {
+			let playerPool = this.players.filter( pl => pl.currentSector == sector && pl.health > 0);
+			const playersWhoFoundPlayers = playerPool.filter(pl => ifRand(PLAYER_NOTICE_PLAYER_PERCENT));
+
+			// Reduce the playerPool to only players who have not found other players
+			playerPool = playerPool.filter( pl => playersWhoFoundPlayers.find( _pl => pl == _pl) == null);
+
+			// For the players who found players, determine who they found
+			for(const [_k, playerWhoFoundAnother] of playersWhoFoundPlayers) {
+				if(playerPool.size == 0) break;
+
+				playerWhoFoundAnother.foundPlayer = selectAndRemoveRandomElement(playerPool);
+
+				if(ifRand(PLAYER_NOTICE_WHO_NOTICED_THEM_PERCENT)) {
+					const other = playerWhoFoundAnother.foundPlayer;
+					other.foundPlayer = playerWhoFoundAnother;
+				}
+			}
+		}
+
+		await Promise.all(this.players.filter(p => p.health > 0).map(p => this.sendInteractionPromptToPlayer(p)));
+	}
+
+	private async sendInteractionPromptToPlayer(player: Player) {
+		let prompt = "";
+
+		if(player.currentSector == player.nextSector) {
+			prompt += `You're still in sector ${player.currentSector}.\n`;
+		} else {
+			player.currentSector = player.nextSector;
+			prompt += `You've arrived in sector ${player.currentSector}.\n`;
+		}
+
+		prompt += `Your health is ${player.health}.\n`;
+
+		if(player.foundPlayer) {
+			prompt += `You see ${player.foundPlayer.member} in the distance.`
+			if(player.foundPlayer.foundPlayer == null) {
+				prompt += `  It doesn't look like they see you.`
+			}
+			prompt += `\n`;
+		} else {
+			prompt += `You don't think anyone's around.\n`;
+		}
+
+		prompt += `What will you do?\n`;
+
+		let buttons = PlayerActionEmoji;
+
+		prompt += `🏃 keep moving\n`;
+		prompt += `🔎 search for supplies\n`;
+		
+		// Either add a prompt for the fight button, or remove it
+		if(player.foundPlayer) prompt += `🤜 fight\n`;
+		else buttons = buttons.slice(0, 2);
+
+		player.actionSelectionPromptMessage = await player.member.user.send(prompt);
+
+		player.actionSelectionButtons = new ReactionButtons.ReactionButtonsManager(player.actionSelectionPromptMessage, buttons);
+
+		player.actionSelectionButtons.on("buttonPress", (user, buttonID) => {
+			switch(buttonID) {
+				case 0:
+					player.nextAction = PlayerAction.run;
+					break;
+				case 1:
+					player.nextAction = PlayerAction.search;
+					break;
+				case 2:
+					player.nextAction = PlayerAction.attack;
+					break;
+			}
+		});
 	}
 
 	private async runPlayerInteractions() {
-		//TODO: For each sector,
-			//TODO: Calculate if each player has noticed another player
-			//TODO: Send prompts to those players
+		this.players.forEach(p => p.cleanupActionSelectionPrompt());
+
+		const activePlayers = this.players.filter(p => p.health > 0);
+
+		const attackingPlayers = activePlayers.filter( p => p.nextAction == PlayerAction.attack);
+
+		for(const [_k, player] of attackingPlayers) {
+			if(player.wasInCombat) continue;
+
+			handleCombatBetweenPlayers(player, player.foundPlayer);
+		}
+
+		const searchingPlayers = activePlayers.filter(p => p.nextAction == PlayerAction.search && !p.wasInCombat);
+
+		for(const [_k, player] of searchingPlayers) {
+			if(ifRand(MEDKIT_FIND_PERCENT)) player.applyMedkit();
+		}
 	}
 
 	private doGameTick() {
-		if(this.forceMovementPhase) this.phase = GamePhase.movement;
-		else this.advancePhaseState();
+		if(this.players.size < 2 && !this.isFirstMovementPhase) return  //Need at least 2 players.  The exception can be the first movement phase
+
+		const livingPlayers = this.players.filter(p => p.health > 0);
+		if(livingPlayers.size <= 1) {
+			const lastPlayer = livingPlayers.first();
+
+			let gameOverMessage = "Game over!\n";
+			if(lastPlayer) gameOverMessage += `${lastPlayer.member} came out on top!\n`;
+			else gameOverMessage += `There were no survivors.\n`;
+		
+			this.channel.send(gameOverMessage);
+			this.pauseGame();
+			this.state = GameState.complete;
+			return;
+		}
+
+		this.advancePhaseState();
 
 		switch(this.phase) {
 			case GamePhase.movement: {
+				if(!this.isFirstMovementPhase) this.runPlayerInteractions();
 				this.sendMovementPrompt();
 				break;
 			}
 			case GamePhase.interaction: {
-				this.runPlayerInteractions();
+				this.sendPlayerInteractionsPrompt();
 				break;
 			}
 		}
