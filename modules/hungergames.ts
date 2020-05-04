@@ -461,10 +461,10 @@ export class Game {
 	}
 
 	private doGameTick() {
-		if(this.players.size < 2 && !this.isFirstMovementPhase) return  //Need at least 2 players.  The exception can be the first movement phase
+		if(this.players.size < 2 && this.phase == GamePhase.movement) return;	//Can't move past the first movement phase with less than two players
 
 		const livingPlayers = this.players.filter(p => p.health > 0);
-		if(livingPlayers.size <= 1) {
+		if(livingPlayers.size <= 1 && !this.isFirstMovementPhase) {
 			const lastPlayer = livingPlayers.first();
 
 			let gameOverMessage = "Game over!\n";
