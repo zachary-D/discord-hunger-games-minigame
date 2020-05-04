@@ -199,7 +199,7 @@ export class Game {
 			if(role) {
 				game.memberRole = role;
 			} else {
-				game.memberRole = await game.guild.createRole({name:  DEFAULT_ROLE_NAME});
+				game.memberRole = await game.guild.createRole({name:  DEFAULT_ROLE_NAME, mentionable: true});
 			}
 		}
 	
