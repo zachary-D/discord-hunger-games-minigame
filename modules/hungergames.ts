@@ -414,7 +414,12 @@ export class Game {
 		if(player.foundPlayer) prompt += `🤜 fight\n`;
 		else buttons = buttons.slice(0, 2);
 
-		player.actionSelectionPromptMessage = await player.member.user.send(prompt);
+		try {
+			player.actionSelectionPromptMessage = await player.member.user.send(prompt);
+		} catch(e) {
+			this.cantSendDMsToPlayer(player);
+			return;
+		}
 
 		player.actionSelectionButtons = new ReactionButtons.ReactionButtonsManager(player.actionSelectionPromptMessage, buttons);
 
@@ -431,6 +436,11 @@ export class Game {
 					break;
 			}
 		});
+	}
+
+	private cantSendDMsToPlayer(player: Player) {
+		this.channel.send(`Oops!  ${player.member}, I can't send direct messages to you.  You have been removed from this game.  Please make sure I can send direct messages to you to participate!`);
+		this.players.delete(player.member.id);
 	}
 
 	private async runPlayerInteractions() {
