@@ -358,7 +358,6 @@ export class Game {
 	}
 
 	private async sendPlayerInteractionsPrompt() {
-
 		// Clean up movement selector message & buttons if they exist
 		if(this.movementSelectorButtons && !this.movementSelectorButtons.ended) this.movementSelectorButtons.stop();
 		if(this.movementSelectorMessage && !this.movementSelectorMessage.deleted) this.movementSelectorMessage.delete();
@@ -479,6 +478,14 @@ export class Game {
 		if(messagesOut.length > 0) this.channel.send(messagesOut.join(`\n`), {split: true});
 	}
 
+	private async pruneIdleMembersFromRole() {
+		await Promise.all(
+			this.memberRole.members
+			.filter(roleMember => !this.players.has(roleMember.id))
+			.map(member => member.removeRole(this.memberRole))
+		);
+	}
+
 	private doGameTick() {
 		if(this.players.size < 2 && this.phase == GamePhase.movement) return;	//Can't move past the first movement phase with less than two players
 
@@ -495,6 +502,8 @@ export class Game {
 			this.state = GameState.complete;
 			return;
 		}
+
+		if(this.phase == GamePhase.movement && this.isFirstMovementPhase) this.pruneIdleMembersFromRole();
 
 		this.advancePhaseState();
 
