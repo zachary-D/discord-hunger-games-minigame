@@ -3,18 +3,10 @@ import {setInterval} from "timers";
 
 import * as ReactionButtons from "../Discord-Bot-Core/src/reactionButtons";
 
+import { Player, PlayerAction, PlayerActionEmoji, handleCombatBetweenPlayers, PLAYER_NOTICE_PLAYER_PERCENT, PLAYER_NOTICE_WHO_NOTICED_THEM_PERCENT, MEDKIT_FIND_PERCENT } from "./player";
+
 const DEFAULT_ROLE_NAME = "minigame peeps";
 const DEFAULT_CHANNEL_NAME = "minigame";
-
-const PLAYER_NOTICE_PLAYER_PERCENT = .40;
-const PLAYER_NOTICE_WHO_NOTICED_THEM_PERCENT = .75;
-const MEDKIT_FIND_PERCENT = .05;
-const MEDKIT_HEALTH_BONUS = 7;
-
-const PLAYER_DAMAGE_DEALT_PERCENT_WHILE_RUNNING = .40;
-const PLAYER_DAMAGE_TAKEN_PERCENT_WHILE_RUNNING = .60;
-const PLAYER_DAMAGE_DEALT_PERCENT_WHILE_SEARCHING = .60;
-const PLAYER_DAMAGE_TAKEN_PERCENT_WHILE_SEARCHING = 1.20;
 
 // Returns true `percent` of the time (calls Math.Random(), returns true if rand() is less than the percent given)
 function ifRand(percent: number) {
@@ -33,14 +25,6 @@ function selectAndRemoveRandomElement<TKey, TValue>(collection: Discord.Collecti
 // Games, mapped by guild ID -> game
 const games = new Discord.Collection<Discord.Snowflake, Game>();
 
-//Enums are given explicit values to preserve serialization across potential future versions
-
-enum PlayerAction {
-	run = 1,
-	attack = 2,
-	search = 3
-}
-
 enum GamePhase {
 	movement = 1,
 	interaction = 2
@@ -51,142 +35,6 @@ enum GameState {
 	inProgress = 2,
 	paused = 3,
 	complete = 4
-}
-
-
-const PlayerActionEmoji = [
-	"🏃",
-	"🔎",
-	"🤜"
-]
-
-export class Player {
-	readonly parentGame: Game;
-	readonly member: Discord.GuildMember;
-	health = 15;
-	currentSector = 1;
-	nextSector = 1;
-
-	nextAction = PlayerAction.run;
-	foundPlayer: Player;	//Set if this player found another player in an interaction step
-	foundMedkit = false;	//Set if the player found a medkit in the last interaction step
-	wasInCombat = false;
-	diedLastPhase = false;
-
-	actionSelectionPromptMessage: Discord.Message;
-	actionSelectionButtons: ReactionButtons.ReactionButtonsManager;
-
-	statusUpdateMessage: Discord.Message;
-
-
-	private constructor(data?: Partial<Player>) {
-		Object.assign(this, data);
-	}
-
-	static createNewPlayer(parentGame: Game, member: Discord.GuildMember) {
-		const player: any = {};
-		player.parentGame = parentGame;
-		player.member = member;
-		return new Player(player);
-	}
-
-	clearInteractionStepFlags() {
-		this.nextAction = PlayerAction.run;
-		this.foundPlayer = null;
-		this.foundMedkit = false;
-		this.wasInCombat = false;
-		this.diedLastPhase = false;
-	}
-
-	async cleanupActionSelectionPrompt() {
-		if(this.actionSelectionButtons) this.actionSelectionButtons.stop();
-		if(this.actionSelectionPromptMessage) {
-			await this.actionSelectionPromptMessage.delete();
-			this.actionSelectionButtons = null;
-		}
-	}
-
-	applyMedkit() {
-		this.foundMedkit = true;
-		this.health += MEDKIT_HEALTH_BONUS;
-	}
-
-	async sendStatusUpdateToPlayer() {
-		if(this.diedLastPhase) {
-			this.statusUpdateMessage = await this.member.user.send("You died.");
-		} else {
-			this.statusUpdateMessage = await this.member.user.send(`You are in sector ${this.currentSector}\nYour health is ${this.health}`);
-		}
-	}
-
-	async cleanupStatusUpdateMessage() {
-		if(this.statusUpdateMessage) {
-			await this.statusUpdateMessage.delete();
-			this.statusUpdateMessage = null;
-		}
-	}
-}
-
-function calculateDamageTaken(attackingPlayer: Player, defendingPlayer: Player): number {
-	let damage = 2 * Math.tan(2.4 * (Math.random() - 0.5)) + 5;
-
-	if(defendingPlayer.nextAction == PlayerAction.run) damage *= PLAYER_DAMAGE_TAKEN_PERCENT_WHILE_RUNNING;
-	else if(defendingPlayer.nextAction == PlayerAction.search) damage *= PLAYER_DAMAGE_TAKEN_PERCENT_WHILE_SEARCHING;
-
-	if(attackingPlayer.nextAction == PlayerAction.run) damage *= PLAYER_DAMAGE_DEALT_PERCENT_WHILE_RUNNING;
-	if(attackingPlayer.nextAction == PlayerAction.search) damage *= PLAYER_DAMAGE_DEALT_PERCENT_WHILE_SEARCHING;
-
-	return Math.round(damage);
-}
-
-function handleCombatBetweenPlayers(attacker: Player, target: Player): string {
-	attacker.wasInCombat = true;
-	target.wasInCombat = true;
-
-	const attackerDamageTaken = calculateDamageTaken(target, attacker);
-	const targetDamageTaken = calculateDamageTaken(attacker, target);
-
-	attacker.health -= attackerDamageTaken;
-	target.health -= targetDamageTaken;
-
-	let message = "";
-
-	if(target.foundPlayer && target.nextAction == PlayerAction.attack) {
-		message += `${attacker.member} and ${target.member} fought!\n`;
-	} else message += `${attacker.member} attacked ${target.member}!\n`;
-
-	message += `${attacker.member} dealt ${targetDamageTaken} points of damage!\n`;
-	message += `${target.member} dealt ${attackerDamageTaken} points of damage!\n`;
-
-	const attackerDead = attacker.health <= 0;
-	const targetDead = target.health <= 0;
-
-	if(attackerDead && targetDead) {
-		attacker.diedLastPhase = true;
-		target.diedLastPhase = true;
-		message += `They were both killed in the fight!`;
-	}
-	else if(attackerDead || targetDead) {
-		let dead: Player;
-		let survivor: Player;
-		if(attackerDead) dead = attacker;
-		else survivor = attacker;
-		if(targetDead) dead = target;
-		else survivor = target;
-
-		dead.diedLastPhase = true;
-
-		if(dead == target) {
-			if(target.nextAction == PlayerAction.run) message += `${dead.member} tried to run, but were killed!`;
-			else if(target.nextAction == PlayerAction.search) message += `${dead.member} never saw them coming.`;
-			else message += `${survivor.member} killed ${dead.member}!`;
-		} else if(dead == attacker) {
-			if(target.nextAction != PlayerAction.attack) message += `${dead.member} killed them in self defense!`;
-			else message += `${survivor.member} killed ${dead.member}!`;
-		}
-	}
-
-	return message;
 }
 
 export class Game {
@@ -254,8 +102,6 @@ export class Game {
 	resumeGame() {
 		if(this.state == GameState.complete) throw new Error("Cannot resume finished game");
 		if(this.state == GameState.inProgress) throw new Error("Cannot resume game already in progress");
-
-		// if(this.state == GameState.notStarted) this.forceMovementPhase = true;
 
 		//The only two states we can be in is .notStarted and .paused, and we want to move to .inProgress for either
 		this.state = GameState.inProgress;
@@ -415,67 +261,10 @@ export class Game {
 			}
 		}
 
-		await Promise.all(this.players.filter(p => p.health > 0).map(p => this.sendInteractionPromptToPlayer(p)));
+		await Promise.all(this.players.filter(p => p.health > 0).map(p => p.sendInteractionPrompt()));
 	}
 
-	private async sendInteractionPromptToPlayer(player: Player) {
-		let prompt = "";
-
-		if(player.currentSector == player.nextSector) {
-			prompt += `You're still in sector ${player.currentSector}.\n`;
-		} else {
-			player.currentSector = player.nextSector;
-			prompt += `You've arrived in sector ${player.currentSector}.\n`;
-		}
-
-		prompt += `Your health is ${player.health}.\n`;
-
-		if(player.foundPlayer) {
-			prompt += `You see ${player.foundPlayer.member} in the distance.`
-			if(player.foundPlayer.foundPlayer == null) {
-				prompt += `  It doesn't look like they see you.`
-			}
-			prompt += `\n`;
-		} else {
-			prompt += `You don't think anyone's around.\n`;
-		}
-
-		prompt += `What will you do?\n`;
-
-		let buttons = PlayerActionEmoji;
-
-		prompt += `🏃 keep moving\n`;
-		prompt += `🔎 search for supplies\n`;
-		
-		// Either add a prompt for the fight button, or remove it
-		if(player.foundPlayer) prompt += `🤜 fight\n`;
-		else buttons = buttons.slice(0, 2);
-
-		try {
-			player.actionSelectionPromptMessage = await player.member.user.send(prompt);
-		} catch(e) {
-			this.cantSendDMsToPlayer(player);
-			return;
-		}
-
-		player.actionSelectionButtons = new ReactionButtons.ReactionButtonsManager(player.actionSelectionPromptMessage, buttons);
-
-		player.actionSelectionButtons.on("buttonPress", (user, buttonID) => {
-			switch(buttonID) {
-				case 0:
-					player.nextAction = PlayerAction.run;
-					break;
-				case 1:
-					player.nextAction = PlayerAction.search;
-					break;
-				case 2:
-					player.nextAction = PlayerAction.attack;
-					break;
-			}
-		});
-	}
-
-	private cantSendDMsToPlayer(player: Player) {
+	cantSendDMsToPlayer(player: Player) {
 		this.channel.send(`Oops!  ${player.member}, I can't send direct messages to you.  You have been removed from this game.  Please make sure I can send direct messages to you to participate!`);
 		this.players.delete(player.member.id);
 	}
