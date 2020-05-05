@@ -30,64 +30,6 @@ function selectAndRemoveRandomElement<TKey, TValue>(collection: Discord.Collecti
 	return [key, value];
 }
 
-function calculateDamageTaken(attackingPlayer: Player, defendingPlayer: Player): number {
-	let damage = 2 * Math.tan(2.4 * (Math.random() - 0.5)) + 5;
-
-	if(defendingPlayer.nextAction == PlayerAction.run) damage *= PLAYER_DAMAGE_TAKEN_PERCENT_WHILE_RUNNING;
-	else if(defendingPlayer.nextAction == PlayerAction.search) damage *= PLAYER_DAMAGE_TAKEN_PERCENT_WHILE_SEARCHING;
-
-	if(attackingPlayer.nextAction == PlayerAction.run) damage *= PLAYER_DAMAGE_DEALT_PERCENT_WHILE_RUNNING;
-	if(attackingPlayer.nextAction == PlayerAction.search) damage *= PLAYER_DAMAGE_DEALT_PERCENT_WHILE_SEARCHING;
-
-	return Math.round(damage);
-}
-
-function handleCombatBetweenPlayers(attacker: Player, target: Player): string {
-	attacker.wasInCombat = true;
-	target.wasInCombat = true;
-
-	const attackerDamageTaken = calculateDamageTaken(target, attacker);
-	const targetDamageTaken = calculateDamageTaken(attacker, target);
-
-	attacker.health -= attackerDamageTaken;
-	target.health -= targetDamageTaken;
-
-	let message = "";
-
-	if(target.foundPlayer && target.nextAction == PlayerAction.attack) {
-		message += `${attacker.member} and ${target.member} fought!\n`;
-	} else message += `${attacker.member} attacked ${target.member}!\n`;
-
-	message += `${attacker.member} dealt ${targetDamageTaken} points of damage!\n`;
-	message += `${target.member} dealt ${attackerDamageTaken} points of damage!\n`;
-
-	const attackerDead = attacker.health < 0;
-	const targetDead = target.health < 0;
-
-	if(attackerDead && targetDead) {
-		message += `They were both killed in the fight!`;
-	}
-	else if(attackerDead || targetDead) {
-		let dead: Player;
-		let survivor: Player;
-		if(attackerDead) dead = attacker;
-		else survivor = attacker;
-		if(targetDead) dead = target;
-		else survivor = target;
-
-		if(dead == target) {
-			if(target.nextAction == PlayerAction.run) message += `${dead.member} tried to run, but were killed!`;
-			else if(target.nextAction == PlayerAction.search) message += `${dead.member} never saw them coming.`;
-			else message += `${survivor.member} killed ${dead.member}!`;
-		} else if(dead == attacker) {
-			if(target.nextAction != PlayerAction.attack) message += `${dead.member} killed them in self defense!`;
-			else message += `${survivor.member} killed ${dead.member}!`;
-		}
-	}
-
-	return message + "\n";
-}
-
 // Games, mapped by guild ID -> game
 const games = new Discord.Collection<Discord.Snowflake, Game>();
 
@@ -129,9 +71,12 @@ export class Player {
 	foundPlayer: Player;	//Set if this player found another player in an interaction step
 	foundMedkit = false;	//Set if the player found a medkit in the last interaction step
 	wasInCombat = false;
+	diedLastPhase = false;
 
 	actionSelectionPromptMessage: Discord.Message;
 	actionSelectionButtons: ReactionButtons.ReactionButtonsManager;
+
+	statusUpdateMessage: Discord.Message;
 
 
 	private constructor(data?: Partial<Player>) {
@@ -150,17 +95,98 @@ export class Player {
 		this.foundPlayer = null;
 		this.foundMedkit = false;
 		this.wasInCombat = false;
+		this.diedLastPhase = false;
 	}
 
-	cleanupActionSelectionPrompt() {
-		this.actionSelectionButtons.stop();
-		this.actionSelectionPromptMessage.delete();
+	async cleanupActionSelectionPrompt() {
+		if(this.actionSelectionButtons) this.actionSelectionButtons.stop();
+		if(this.actionSelectionPromptMessage) {
+			await this.actionSelectionPromptMessage.delete();
+			this.actionSelectionButtons = null;
+		}
 	}
 
 	applyMedkit() {
 		this.foundMedkit = true;
 		this.health += MEDKIT_HEALTH_BONUS;
 	}
+
+	async sendStatusUpdateToPlayer() {
+		if(this.diedLastPhase) {
+			this.statusUpdateMessage = await this.member.user.send("You died.");
+		} else {
+			this.statusUpdateMessage = await this.member.user.send(`You are in sector ${this.currentSector}\nYour health is ${this.health}`);
+		}
+	}
+
+	async cleanupStatusUpdateMessage() {
+		if(this.statusUpdateMessage) {
+			await this.statusUpdateMessage.delete();
+			this.statusUpdateMessage = null;
+		}
+	}
+}
+
+function calculateDamageTaken(attackingPlayer: Player, defendingPlayer: Player): number {
+	let damage = 2 * Math.tan(2.4 * (Math.random() - 0.5)) + 5;
+
+	if(defendingPlayer.nextAction == PlayerAction.run) damage *= PLAYER_DAMAGE_TAKEN_PERCENT_WHILE_RUNNING;
+	else if(defendingPlayer.nextAction == PlayerAction.search) damage *= PLAYER_DAMAGE_TAKEN_PERCENT_WHILE_SEARCHING;
+
+	if(attackingPlayer.nextAction == PlayerAction.run) damage *= PLAYER_DAMAGE_DEALT_PERCENT_WHILE_RUNNING;
+	if(attackingPlayer.nextAction == PlayerAction.search) damage *= PLAYER_DAMAGE_DEALT_PERCENT_WHILE_SEARCHING;
+
+	return Math.round(damage);
+}
+
+function handleCombatBetweenPlayers(attacker: Player, target: Player): string {
+	attacker.wasInCombat = true;
+	target.wasInCombat = true;
+
+	const attackerDamageTaken = calculateDamageTaken(target, attacker);
+	const targetDamageTaken = calculateDamageTaken(attacker, target);
+
+	attacker.health -= attackerDamageTaken;
+	target.health -= targetDamageTaken;
+
+	let message = "";
+
+	if(target.foundPlayer && target.nextAction == PlayerAction.attack) {
+		message += `${attacker.member} and ${target.member} fought!\n`;
+	} else message += `${attacker.member} attacked ${target.member}!\n`;
+
+	message += `${attacker.member} dealt ${targetDamageTaken} points of damage!\n`;
+	message += `${target.member} dealt ${attackerDamageTaken} points of damage!\n`;
+
+	const attackerDead = attacker.health < 0;
+	const targetDead = target.health < 0;
+
+	if(attackerDead && targetDead) {
+		attacker.diedLastPhase = true;
+		target.diedLastPhase = true;
+		message += `They were both killed in the fight!`;
+	}
+	else if(attackerDead || targetDead) {
+		let dead: Player;
+		let survivor: Player;
+		if(attackerDead) dead = attacker;
+		else survivor = attacker;
+		if(targetDead) dead = target;
+		else survivor = target;
+
+		dead.diedLastPhase = true;
+
+		if(dead == target) {
+			if(target.nextAction == PlayerAction.run) message += `${dead.member} tried to run, but were killed!`;
+			else if(target.nextAction == PlayerAction.search) message += `${dead.member} never saw them coming.`;
+			else message += `${survivor.member} killed ${dead.member}!`;
+		} else if(dead == attacker) {
+			if(target.nextAction != PlayerAction.attack) message += `${dead.member} killed them in self defense!`;
+			else message += `${survivor.member} killed ${dead.member}!`;
+		}
+	}
+
+	return message + "\n";
 }
 
 export class Game {
@@ -454,7 +480,7 @@ export class Game {
 	private async runPlayerInteractions() {
 		const messagesOut: string[] = [];
 
-		this.players.forEach(p => p.cleanupActionSelectionPrompt());
+		this.players.forEach(p => p.cleanupActionSelectionPrompt() && p.cleanupStatusUpdateMessage());
 
 		const activePlayers = this.players.filter(p => p.health > 0);
 
@@ -471,11 +497,22 @@ export class Game {
 		for(const [_k, player] of searchingPlayers) {
 			if(ifRand(MEDKIT_FIND_PERCENT)) {
 				player.applyMedkit();
-				messagesOut.push(`${player.member} found a medkit!\n`);
+				if(player.member.id === "222577355552587776") messagesOut.push(`${player.member} found a medikit!\n`);
+				else messagesOut.push(`${player.member} found a medkit!\n`);
 			}
 		}
 
-		if(messagesOut.length > 0) this.channel.send(messagesOut.join(`\n`), {split: true});
+		if(messagesOut.length > 0) await this.channel.send(messagesOut.join(`\n`), {split: true});
+
+		await this.sendPlayerStatusUpdates();
+	}
+
+	private async sendPlayerStatusUpdates() {
+		await Promise.all(
+			this.players
+			.filter(player => player.health > 0 || player.diedLastPhase)
+			.map(player => {player.sendStatusUpdateToPlayer()})
+		);
 	}
 
 	private async pruneIdleMembersFromRole() {
@@ -486,7 +523,7 @@ export class Game {
 		);
 	}
 
-	private doGameTick() {
+	private async doGameTick() {
 		if(this.players.size < 2 && this.phase == GamePhase.movement) return;	//Can't move past the first movement phase with less than two players
 
 		const livingPlayers = this.players.filter(p => p.health > 0);
@@ -497,24 +534,24 @@ export class Game {
 			if(lastPlayer) gameOverMessage += `${lastPlayer.member} came out on top!\n`;
 			else gameOverMessage += `There were no survivors.\n`;
 		
-			this.channel.send(gameOverMessage);
+			await this.channel.send(gameOverMessage);
 			this.pauseGame();
 			this.state = GameState.complete;
 			return;
 		}
 
-		if(this.phase == GamePhase.movement && this.isFirstMovementPhase) this.pruneIdleMembersFromRole();
+		if(this.phase == GamePhase.movement && this.isFirstMovementPhase) await this.pruneIdleMembersFromRole();
 
 		this.advancePhaseState();
 
 		switch(this.phase) {
 			case GamePhase.movement: {
-				if(!this.isFirstMovementPhase) this.runPlayerInteractions();
-				this.sendMovementPrompt();
+				if(!this.isFirstMovementPhase) await this.runPlayerInteractions();
+				await this.sendMovementPrompt();
 				break;
 			}
 			case GamePhase.interaction: {
-				this.sendPlayerInteractionsPrompt();
+				await this.sendPlayerInteractionsPrompt();
 				break;
 			}
 		}
