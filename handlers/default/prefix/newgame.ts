@@ -1,6 +1,6 @@
 import * as Discord from "discord.js";
 
-import {Game} from "../../../modules/hungergames";
+import {Game} from "../../../src/game";
 
 module.exports = {
 	name: 'newgame',
