@@ -523,11 +523,9 @@ export class Game {
 		);
 	}
 
-	private async doGameTick() {
-		if(this.players.size < 2 && this.phase == GamePhase.movement) return;	//Can't move past the first movement phase with less than two players
-
+	private async checkAndHandleGameOverState(): Promise<boolean> {
 		const livingPlayers = this.players.filter(p => p.health > 0);
-		if(livingPlayers.size <= 1 && !this.isFirstMovementPhase) {
+		if(livingPlayers.size <= 1) {
 			const lastPlayer = livingPlayers.first();
 
 			let gameOverMessage = "Game over!\n";
@@ -537,8 +535,13 @@ export class Game {
 			await this.channel.send(gameOverMessage);
 			this.pauseGame();
 			this.state = GameState.complete;
-			return;
+			return true;
 		}
+		return false;
+	}
+
+	private async doGameTick() {
+		if(this.players.size < 2 && this.phase == GamePhase.movement) return;	//Can't move past the first movement phase with less than two players
 
 		if(this.phase == GamePhase.movement && this.isFirstMovementPhase) await this.pruneIdleMembersFromRole();
 
@@ -546,7 +549,11 @@ export class Game {
 
 		switch(this.phase) {
 			case GamePhase.movement: {
-				if(!this.isFirstMovementPhase) await this.runPlayerInteractions();
+				if(!this.isFirstMovementPhase) {
+					await this.runPlayerInteractions();
+					if(await this.checkAndHandleGameOverState()) return;
+				}
+
 				await this.sendMovementPrompt();
 				break;
 			}
