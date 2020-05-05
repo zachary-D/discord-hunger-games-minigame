@@ -4,6 +4,7 @@ import * as ReactionButtons from "../Discord-Bot-Core/src/reactionButtons";
 
 import {Game} from "./game";
 
+
 //Enums are given explicit values to preserve serialization across potential future versions
 
 export enum PlayerAction {
@@ -82,7 +83,64 @@ export class Player {
 			await this.statusUpdateMessage.delete();
 			this.statusUpdateMessage = null;
 		}
-	}
+    }
+    
+    async sendInteractionPrompt() {
+        let prompt = "";
+
+		if(this.currentSector == this.nextSector) {
+			prompt += `You're still in sector ${this.currentSector}.\n`;
+		} else {
+			this.currentSector = this.nextSector;
+			prompt += `You've arrived in sector ${this.currentSector}.\n`;
+		}
+
+		prompt += `Your health is ${this.health}.\n`;
+
+		if(this.foundPlayer) {
+			prompt += `You see ${this.foundPlayer.member} in the distance.`
+			if(this.foundPlayer.foundPlayer == null) {
+				prompt += `  It doesn't look like they see you.`
+			}
+			prompt += `\n`;
+		} else {
+			prompt += `You don't think anyone's around.\n`;
+		}
+
+		prompt += `What will you do?\n`;
+
+		let buttons = PlayerActionEmoji;
+
+		prompt += `🏃 keep moving\n`;
+		prompt += `🔎 search for supplies\n`;
+		
+		// Either add a prompt for the fight button, or remove it
+		if(this.foundPlayer) prompt += `🤜 fight\n`;
+		else buttons = buttons.slice(0, 2);
+
+		try {
+			this.actionSelectionPromptMessage = await this.member.user.send(prompt);
+		} catch(e) {
+			this.parentGame.cantSendDMsToPlayer(this);
+			return;
+		}
+
+		this.actionSelectionButtons = new ReactionButtons.ReactionButtonsManager(this.actionSelectionPromptMessage, buttons);
+
+		this.actionSelectionButtons.on("buttonPress", (user, buttonID) => {
+			switch(buttonID) {
+				case 0:
+					this.nextAction = PlayerAction.run;
+					break;
+				case 1:
+					this.nextAction = PlayerAction.search;
+					break;
+				case 2:
+					this.nextAction = PlayerAction.attack;
+					break;
+			}
+		});
+    }
 }
 
 export const PLAYER_NOTICE_PLAYER_PERCENT = .40;

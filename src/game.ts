@@ -103,8 +103,6 @@ export class Game {
 		if(this.state == GameState.complete) throw new Error("Cannot resume finished game");
 		if(this.state == GameState.inProgress) throw new Error("Cannot resume game already in progress");
 
-		// if(this.state == GameState.notStarted) this.forceMovementPhase = true;
-
 		//The only two states we can be in is .notStarted and .paused, and we want to move to .inProgress for either
 		this.state = GameState.inProgress;
 		this.doGameTick();
@@ -263,67 +261,10 @@ export class Game {
 			}
 		}
 
-		await Promise.all(this.players.filter(p => p.health > 0).map(p => this.sendInteractionPromptToPlayer(p)));
+		await Promise.all(this.players.filter(p => p.health > 0).map(p => p.sendInteractionPrompt()));
 	}
 
-	private async sendInteractionPromptToPlayer(player: Player) {
-		let prompt = "";
-
-		if(player.currentSector == player.nextSector) {
-			prompt += `You're still in sector ${player.currentSector}.\n`;
-		} else {
-			player.currentSector = player.nextSector;
-			prompt += `You've arrived in sector ${player.currentSector}.\n`;
-		}
-
-		prompt += `Your health is ${player.health}.\n`;
-
-		if(player.foundPlayer) {
-			prompt += `You see ${player.foundPlayer.member} in the distance.`
-			if(player.foundPlayer.foundPlayer == null) {
-				prompt += `  It doesn't look like they see you.`
-			}
-			prompt += `\n`;
-		} else {
-			prompt += `You don't think anyone's around.\n`;
-		}
-
-		prompt += `What will you do?\n`;
-
-		let buttons = PlayerActionEmoji;
-
-		prompt += `🏃 keep moving\n`;
-		prompt += `🔎 search for supplies\n`;
-		
-		// Either add a prompt for the fight button, or remove it
-		if(player.foundPlayer) prompt += `🤜 fight\n`;
-		else buttons = buttons.slice(0, 2);
-
-		try {
-			player.actionSelectionPromptMessage = await player.member.user.send(prompt);
-		} catch(e) {
-			this.cantSendDMsToPlayer(player);
-			return;
-		}
-
-		player.actionSelectionButtons = new ReactionButtons.ReactionButtonsManager(player.actionSelectionPromptMessage, buttons);
-
-		player.actionSelectionButtons.on("buttonPress", (user, buttonID) => {
-			switch(buttonID) {
-				case 0:
-					player.nextAction = PlayerAction.run;
-					break;
-				case 1:
-					player.nextAction = PlayerAction.search;
-					break;
-				case 2:
-					player.nextAction = PlayerAction.attack;
-					break;
-			}
-		});
-	}
-
-	private cantSendDMsToPlayer(player: Player) {
+	cantSendDMsToPlayer(player: Player) {
 		this.channel.send(`Oops!  ${player.member}, I can't send direct messages to you.  You have been removed from this game.  Please make sure I can send direct messages to you to participate!`);
 		this.players.delete(player.member.id);
 	}
