@@ -388,7 +388,10 @@ export class Game {
 		if(this.movementSelectorButtons && !this.movementSelectorButtons.ended) this.movementSelectorButtons.stop();
 		if(this.movementSelectorMessage && !this.movementSelectorMessage.deleted) this.movementSelectorMessage.delete();
 
-		this.players.forEach(pl => pl.clearInteractionStepFlags());
+		for(const [_id, player] of this.players) {
+			player.cleanupStatusUpdateMessage();
+			player.clearInteractionStepFlags();
+		}
 
 		for(let sector = 1; sector <= this.numSectors; sector++) {
 			let playerPool = this.players.filter( pl => pl.currentSector == sector && pl.health > 0);
@@ -480,7 +483,7 @@ export class Game {
 	private async runPlayerInteractions() {
 		const messagesOut: string[] = [];
 
-		this.players.forEach(p => p.cleanupActionSelectionPrompt() && p.cleanupStatusUpdateMessage());
+		this.players.forEach(p => p.cleanupActionSelectionPrompt());
 
 		const activePlayers = this.players.filter(p => p.health > 0);
 
