@@ -8,6 +8,10 @@ import { Player, PlayerAction, PlayerActionEmoji, handleCombatBetweenPlayers, PL
 const DEFAULT_ROLE_NAME = "minigame peeps";
 const DEFAULT_CHANNEL_NAME = "minigame";
 
+const DEFAULT_NUM_SECTORS = 6;
+const MINIMUM_NUM_SECTORS = 1;
+const MINIMUM_CYCLES_BEFORE_MAP_SHRINKS = 3;
+
 // Returns true `percent` of the time (calls Math.Random(), returns true if rand() is less than the percent given)
 function ifRand(percent: number) {
 	return Math.random() < percent;
@@ -44,12 +48,14 @@ export class Game {
 	private guild: Discord.Guild;
 	private channel: Discord.TextChannel;
 
+	private cycleNum = 0;
+
 	private phase = GamePhase.interaction; 
 	private state = GameState.notStarted;
 	private nextPhaseTimer: NodeJS.Timer;
 	private phasePeriod = 3 * 60;	//The length of a game-period, in seconds.  Defaults to 3 minutes
 
-	private numSectors = 6;		//The number of sectors in the map
+	private numSectors = DEFAULT_NUM_SECTORS;		//The number of sectors in the map
 
 	//True if a movement phase has never occurred yet
 	private isFirstMovementPhase = true;
@@ -178,6 +184,7 @@ export class Game {
 				break;
 			case GamePhase.interaction:
 				this.phase = GamePhase.movement;
+				this.cycleNum++;
 				break;
 		}
 	}
@@ -332,12 +339,28 @@ export class Game {
 		return false;
 	}
 
+	private async shrinkMapIfApplicable(): Promise<void> {
+		if(this.cycleNum < MINIMUM_CYCLES_BEFORE_MAP_SHRINKS) return;
+		if(this.numSectors <= MINIMUM_NUM_SECTORS) return;
+		if(this.numSectors < this.players.filter(p => p.health > 0).size) return;
+
+		await this.channel.send(`Sector ${this.numSectors} has been removed from the games.`);
+
+		this.numSectors--;
+
+		for(const [_id, player] of this.players) {
+			if(player.nextSector > this.numSectors ) player.nextSector = this.numSectors;
+		}
+	}
+
 	private async doGameTick() {
 		if(this.players.size < 2 && this.phase == GamePhase.movement) return;	//Can't move past the first movement phase with less than two players
 
 		if(this.phase == GamePhase.movement && this.isFirstMovementPhase) await this.pruneIdleMembersFromRole();
 
 		this.advancePhaseState();
+
+		await this.shrinkMapIfApplicable();
 
 		switch(this.phase) {
 			case GamePhase.movement: {
