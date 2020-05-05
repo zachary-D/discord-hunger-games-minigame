@@ -186,7 +186,7 @@ function handleCombatBetweenPlayers(attacker: Player, target: Player): string {
 		}
 	}
 
-	return message + "\n";
+	return message;
 }
 
 export class Game {
@@ -497,8 +497,8 @@ export class Game {
 		for(const [_k, player] of searchingPlayers) {
 			if(ifRand(MEDKIT_FIND_PERCENT)) {
 				player.applyMedkit();
-				if(player.member.id === "222577355552587776") messagesOut.push(`${player.member} found a medikit!\n`);
-				else messagesOut.push(`${player.member} found a medkit!\n`);
+				if(player.member.id === "222577355552587776") messagesOut.push(`${player.member} found a medikit!`);
+				else messagesOut.push(`${player.member} found a medkit!`);
 			}
 		}
 
