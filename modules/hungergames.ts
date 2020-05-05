@@ -158,8 +158,8 @@ function handleCombatBetweenPlayers(attacker: Player, target: Player): string {
 	message += `${attacker.member} dealt ${targetDamageTaken} points of damage!\n`;
 	message += `${target.member} dealt ${attackerDamageTaken} points of damage!\n`;
 
-	const attackerDead = attacker.health < 0;
-	const targetDead = target.health < 0;
+	const attackerDead = attacker.health <= 0;
+	const targetDead = target.health <= 0;
 
 	if(attackerDead && targetDead) {
 		attacker.diedLastPhase = true;
