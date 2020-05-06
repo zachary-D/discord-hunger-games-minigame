@@ -59,10 +59,7 @@ export class Player {
 
 	async cleanupActionSelectionPrompt() {
 		if(this.actionSelectionButtons) this.actionSelectionButtons.stop();
-		if(this.actionSelectionPromptMessage) {
-			await this.actionSelectionPromptMessage.delete();
-			this.actionSelectionButtons = null;
-		}
+		if(this.actionSelectionPromptMessage && !this.actionSelectionPromptMessage.deleted) await this.actionSelectionPromptMessage.delete();
 	}
 
 	applyMedkit() {
@@ -79,10 +76,7 @@ export class Player {
 	}
 
 	async cleanupStatusUpdateMessage() {
-		if(this.statusUpdateMessage) {
-			await this.statusUpdateMessage.delete();
-			this.statusUpdateMessage = null;
-		}
+		if(this.statusUpdateMessage && !this.statusUpdateMessage.deleted) await this.statusUpdateMessage.delete();
     }
     
     async sendInteractionPrompt() {
