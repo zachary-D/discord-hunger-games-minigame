@@ -342,7 +342,7 @@ export class Game {
 		if(this.numSectors <= MINIMUM_NUM_SECTORS) return;
 		if(this.numSectors < this.players.filter(p => p.health > 0).size) return;
 
-		await this.channel.send(`Sector ${this.numSectors} has been removed from the games.`);
+		await this.channel.send(`${this.memberRole}, sector ${this.numSectors} has been removed from the games.`);
 
 		this.numSectors--;
 
