@@ -302,8 +302,6 @@ export class Game {
 		}
 
 		if(messagesOut.length > 0) await this.channel.send(messagesOut.join(`\n`), {split: true});
-
-		await this.sendPlayerStatusUpdates();
 	}
 
 	private async sendPlayerStatusUpdates() {
@@ -360,15 +358,14 @@ export class Game {
 
 		this.advancePhaseState();
 
-		await this.shrinkMapIfApplicable();
-
 		switch(this.phase) {
 			case GamePhase.movement: {
 				if(!this.isFirstMovementPhase) {
 					await this.runPlayerInteractions();
+					await this.shrinkMapIfApplicable();
+					await this.sendPlayerStatusUpdates();
 					if(await this.checkAndHandleGameOverState()) return;
 				}
-
 				await this.sendMovementPrompt();
 				break;
 			}
