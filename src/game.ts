@@ -3,7 +3,22 @@ import {setInterval} from "timers";
 
 import * as ReactionButtons from "../Discord-Bot-Core/src/reactionButtons";
 
-import { Player, PlayerAction, PlayerActionEmoji, handleCombatBetweenPlayers, PLAYER_NOTICE_PLAYER_PERCENT, PLAYER_NOTICE_WHO_NOTICED_THEM_PERCENT, MEDKIT_FIND_PERCENT } from "./player";
+import {
+	Player,
+	PlayerAction,
+	handleCombatBetweenPlayers,
+	PLAYER_NOTICE_PLAYER_PERCENT,
+	PLAYER_NOTICE_WHO_NOTICED_THEM_PERCENT,
+	MEDKIT_FIND_PERCENT
+} from "./player";
+
+import {
+	ItemType,
+	Item,
+	Weapon,
+	Shield,
+	Medkit
+} from "./item";
 
 const DEFAULT_ROLE_NAME = "minigame peeps";
 const DEFAULT_CHANNEL_NAME = "minigame";
