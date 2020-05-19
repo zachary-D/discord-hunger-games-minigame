@@ -1,5 +1,10 @@
 import { Player } from "./player";
 
+export enum BaseItemType {
+	playerModifier = "playerModifier",
+	combatModifier = "combatModifier"
+};
+
 export enum ItemType {
 	weapon = "weapon",
 	shield = "shield",
@@ -13,6 +18,7 @@ export enum ItemUseType {
 
 /* NAMING CONVENTIONS
 
+//TODO:
 holy fuck I forgot how abstraction worked despite using it gotta rewrite this lmao
 
  * ~~ For abstract/base objects ~~
@@ -42,13 +48,14 @@ export interface ItemAssignable {
 	probabilityWeight: number;
 }
 
-abstract class Item implements ItemAssignable {
+export abstract class Item implements ItemAssignable {
 	name: string;
 	probabilityWeight: number;
+	abstract baseType: BaseItemType;
 	abstract type: ItemType;
 	abstract useType: ItemUseType;
 
-	constructor(data?: any) {
+	constructor(data: ItemAssignable) {
 		//Gotta have a super() call anyway, might as well save a line for every child class
 		Object.assign(this, data);
 	}
@@ -59,6 +66,7 @@ abstract class Item implements ItemAssignable {
 export interface PlayerModifierItemAssignable extends ItemAssignable {}
 
 abstract class PlayerModifierItem extends Item implements PlayerModifierItemAssignable {
+	baseType = BaseItemType.playerModifier;
 	onPickup(owner: Player): void {};
 	onMovementStep(owner: Player): void {};
 	onInteractionStep(owner: Player): void {};
@@ -69,6 +77,7 @@ abstract class PlayerModifierItem extends Item implements PlayerModifierItemAssi
 export interface CombatModifierItemAssignable extends ItemAssignable {}
 
 abstract class CombatModifierItem extends Item implements CombatModifierItemAssignable {
+	baseType = BaseItemType.combatModifier;
 	damageDealtModifier(damage: number, owner: Player, other: Player): number { return damage; };
 	damageTakenModifier(damage: number, owner: Player, other: Player): number { return damage; };
 }

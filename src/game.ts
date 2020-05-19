@@ -14,10 +14,11 @@ import {
 
 import {
 	ItemType,
-	Item,
-	Weapon,
+	ItemUseType,
+	Medkit,
 	Shield,
-	Medkit
+	SpikedShield,
+	Weapon
 } from "./item";
 
 const DEFAULT_ROLE_NAME = "minigame peeps";
